@@ -14,12 +14,13 @@ import (
 	"github.com/kardianos/osext"
 )
 
+// DefaultCheckInterval is the minimum time between checks to see if the program is updated.
 const DefaultCheckInterval = 24 * time.Hour
 const checkSuffix = ".check"
 const downloadSuffix = ".download"
 const backupSuffix = ".backup"
 
-func NilLogf(message string, args ...interface{}) {
+func nilLogf(message string, args ...interface{}) {
 }
 
 func goosToUname(goos string) string {
@@ -42,27 +43,33 @@ func unameArch() string {
 	return goarchToUname(runtime.GOARCH)
 }
 
+// Updater keeps a Go binary up to date with a version available via HTTP(S). This can be used
+// to implement auto-updating command line tools.
 type Updater struct {
-	// path to the binary
+	// URL where the binary can be downloaded.
 	BaseURL string
 	// absolute path to the binary to be updated; defaults to the currently executing binary
 	Path string
 	// interval between automatic update checks
 	CheckInterval time.Duration
-	// called to output logs if not nil.
+	// Function used to output logs if not nil.
 	Logf func(message string, args ...interface{})
 }
 
+// Metadata contains information about the source binary and the binary on disk.
 type Metadata struct {
+	// The time the source binary was updated.
 	Updated time.Time
-	Diff    time.Duration
+	// The difference between the update time of the source binary and the binary on disk.
+	Diff time.Duration
 }
 
-// Returns true if the local binary is out of date.
+// Outdated returns true if the local binary is out of date.
 func (u Metadata) Outdated() bool {
 	return u.Diff > 0
 }
 
+// DaysOld returns the number of days that the local binary is out of date.
 func (u Metadata) DaysOld() int {
 	return int(u.Diff.Hours()/24 + 0.5)
 }
@@ -73,7 +80,7 @@ func (u *Updater) checkValidity() error {
 		return errors.New("Updater: BaseURL is required")
 	}
 	if u.Logf == nil {
-		u.Logf = NilLogf
+		u.Logf = nilLogf
 	}
 	if u.CheckInterval == time.Duration(0) {
 		u.CheckInterval = DefaultCheckInterval
@@ -95,7 +102,9 @@ func (u *Updater) updateURL() string {
 	return u.BaseURL + "-" + unameOS() + "-" + unameArch()
 }
 
-// Returns true if it is time to check for an update and a newer file is available.
+// MaybeCheckForUpdate checks for an update if it has been long enough since the last check. It
+// returns the metadata or an error if it executes a check. It returns a zero Metadata value if
+// it does not check for an update.
 func (u *Updater) MaybeCheckForUpdate() (Metadata, error) {
 	err := u.checkValidity()
 	if err != nil {
@@ -162,7 +171,7 @@ func (u *Updater) MaybeCheckForUpdate() (Metadata, error) {
 	return Metadata{httpModified, httpModified.Sub(fileinfo.ModTime())}, nil
 }
 
-// Downloads the most recent version and attempts to replace the existing version.
+// Update downloads the most recent version and replaces the current version.
 func (u *Updater) Update() error {
 	err := u.checkValidity()
 	if err != nil {

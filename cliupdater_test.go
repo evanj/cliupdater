@@ -54,7 +54,7 @@ func (f *fixture) close() {
 }
 
 func (f *fixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	f.requests += 1
+	f.requests++
 	if r.Method == "HEAD" {
 		w.Header().Set("Last-Modified", f.modified.Format(time.RFC1123))
 	} else if r.Method == "GET" {
@@ -123,6 +123,9 @@ func TestMaybeCheckForUpdate(t *testing.T) {
 	}
 	if f.requests != 2 {
 		t.Error("should not have made any requests", f.requests)
+	}
+	if metadata.DaysOld() < 280 {
+		t.Error("metadata should be at least 280 days old", metadata)
 	}
 }
 
