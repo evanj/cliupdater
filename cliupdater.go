@@ -2,10 +2,12 @@ package cliupdater
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"runtime"
 	"strings"
@@ -54,6 +56,9 @@ type Updater struct {
 	CheckInterval time.Duration
 	// Function used to output logs if not nil.
 	Logf func(message string, args ...interface{})
+	// Call the new binary with these arguments to "apply" an update. If it fails, the binary
+	// will not be replaced.
+	ApplyArgs []string
 }
 
 // Metadata contains information about the source binary and the binary on disk.
@@ -211,6 +216,21 @@ func (u *Updater) Update() error {
 	err = f.Close()
 	if err != nil {
 		return err
+	}
+
+	if len(u.ApplyArgs) != 0 {
+		u.Logf("executing new binary with apply flags: %s", strings.Join(u.ApplyArgs, " "))
+		cmd := exec.Command(updatePath, u.ApplyArgs...)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		err := cmd.Run()
+		if err != nil {
+			u.Logf("new binary failed to apply update")
+			return fmt.Errorf("Update() failed to apply update: %s", err.Error())
+		}
+		u.Logf("update applied successfully")
 	}
 
 	// backup the existing file and overwrite with the new

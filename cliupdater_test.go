@@ -7,12 +7,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"testing"
 )
 
-const fakeUpdate = "#!/bin/sh\necho hello\n"
+const defaultUpdateBinary = "#!/bin/sh\necho hello args $@\n"
 
 type fixture struct {
 	tempdir  string
@@ -20,6 +21,7 @@ type fixture struct {
 	requests int
 	server   *httptest.Server
 	updater  Updater
+	binary   string
 }
 
 func newFixture() (*fixture, error) {
@@ -33,7 +35,7 @@ func newFixture() (*fixture, error) {
 		return nil, err
 	}
 
-	f := &fixture{tempdir, modified, 0, nil, Updater{}}
+	f := &fixture{tempdir, modified, 0, nil, Updater{}, defaultUpdateBinary}
 	f.server = httptest.NewServer(f)
 
 	f.updater.BaseURL = f.server.URL + "/somebinary"
@@ -58,7 +60,7 @@ func (f *fixture) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "HEAD" {
 		w.Header().Set("Last-Modified", f.modified.Format(time.RFC1123))
 	} else if r.Method == "GET" {
-		w.Write([]byte(fakeUpdate))
+		w.Write([]byte(f.binary))
 	} else {
 		http.Error(w, "invalid method", http.StatusMethodNotAllowed)
 	}
@@ -144,7 +146,7 @@ func TestUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(out) != fakeUpdate {
+	if string(out) != defaultUpdateBinary {
 		t.Error("unexpected contents of updated file:", string(out))
 	}
 
@@ -153,6 +155,46 @@ func TestUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestUpdateWithApply(t *testing.T) {
+	f, err := newFixture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.close()
+
+	// update tries to be applied but fails
+	f.binary = "#!/bin/sh\nexit 1\n"
+	f.updater.ApplyArgs = []string{"apply", "args"}
+	err = f.updater.Update()
+	if err == nil || !strings.Contains(err.Error(), "exit status 1") {
+		t.Fatal(err)
+	}
+	out, err := ioutil.ReadFile(f.updater.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 0 {
+		t.Error("should not have updated binary")
+	}
+
+	// update applies correctly
+	f.binary = `#!/bin/sh
+DIR=$(dirname -- "$0")
+echo "$@" > $DIR/update-args.txt`
+	err = f.updater.Update()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = ioutil.ReadFile(f.tempdir + "/update-args.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != "apply args\n" {
+		t.Errorf("wrong arguments to apply: '%s'", string(out))
+	}
+
 }
 
 func TestGOOSToUname(t *testing.T) {
